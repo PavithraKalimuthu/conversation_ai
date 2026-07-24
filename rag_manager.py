@@ -1,5 +1,5 @@
 import os
-
+import uuid
 import chromadb
 
 from sentence_transformers import SentenceTransformer
@@ -16,11 +16,13 @@ from config import (
     EMBEDDING_MODEL
 )
 
+# --------------------------------------------------
+# Chroma Client
+# --------------------------------------------------
+
 client = chromadb.PersistentClient(path=CHROMA_PATH)
 
-embedding_model = SentenceTransformer(
-    EMBEDDING_MODEL
-)
+embedding_model = SentenceTransformer(EMBEDDING_MODEL)
 
 splitter = RecursiveCharacterTextSplitter(
     chunk_size=500,
@@ -28,40 +30,66 @@ splitter = RecursiveCharacterTextSplitter(
 )
 
 
+# --------------------------------------------------
+# Get User Collection
+# --------------------------------------------------
+
 def get_collection(user_id):
 
     return client.get_or_create_collection(
-
         name=f"user_{user_id}"
-
     )
 
 
+# --------------------------------------------------
+# Upload Document
+# --------------------------------------------------
+
 def upload_document(user_id, file_path):
 
-    ext = os.path.splitext(file_path)[1]
+    extension = os.path.splitext(file_path)[1].lower()
 
-    if ext == ".pdf":
+    if extension == ".pdf":
 
         loader = PyPDFLoader(file_path)
 
+    elif extension == ".txt":
+
+        loader = TextLoader(file_path, encoding="utf-8")
+
     else:
 
-        loader = TextLoader(file_path)
+        raise ValueError("Unsupported file type.")
 
-    docs = loader.load()
+    documents = loader.load()
 
     text = ""
 
-    for page in docs:
+    for page in documents:
 
-        text += page.page_content
+        text += page.page_content + "\n"
 
     chunks = splitter.split_text(text)
 
     collection = get_collection(user_id)
 
-    for i, chunk in enumerate(chunks):
+    # -----------------------------------------
+    # Remove previous uploaded document
+    # -----------------------------------------
+
+    existing = collection.get()
+
+    if existing["ids"]:
+
+        collection.delete(
+            ids=existing["ids"]
+        )
+
+    # -----------------------------------------
+    # Store new document
+    # -----------------------------------------
+
+    for chunk in chunks:
 
         embedding = embedding_model.encode(
             chunk
@@ -69,7 +97,7 @@ def upload_document(user_id, file_path):
 
         collection.add(
 
-            ids=[str(i)],
+            ids=[str(uuid.uuid4())],
 
             documents=[chunk],
 
@@ -77,6 +105,12 @@ def upload_document(user_id, file_path):
 
         )
 
+    print(f"\n✅ Uploaded {len(chunks)} chunks successfully.\n")
+
+
+# --------------------------------------------------
+# Retrieve Context
+# --------------------------------------------------
 
 def retrieve_context(user_id, query):
 
@@ -94,6 +128,26 @@ def retrieve_context(user_id, query):
 
     )
 
-    docs = results["documents"][0]
+    print("\n========== RAG RESULTS ==========")
+    print(results)
+    print("=================================\n")
 
-    return "\n".join(docs)
+    documents = results.get("documents")
+
+    if not documents:
+
+        return ""
+
+    docs = documents[0]
+
+    print("\nRetrieved Documents:\n")
+    print(docs)
+
+    # Convert retrieved chunks into a single string
+    context = "\n\n".join(docs)
+
+    print("\n========== CONTEXT PASSED TO LLM ==========")
+    print(context)
+    print("==========================================\n")
+
+    return context

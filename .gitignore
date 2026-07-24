@@ -16,7 +16,11 @@ logs/
 *.log
 
 # ChromaDB
+
 chroma_db/
+*.sqlite3
+None/
+
 
 # Uploads
 uploads/

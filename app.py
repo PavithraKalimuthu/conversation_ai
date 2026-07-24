@@ -1,4 +1,3 @@
-
 import streamlit as st
 import requests
 
@@ -10,9 +9,9 @@ st.set_page_config(
     layout="wide"
 )
 
-# -------------------------
+# ---------------------------------------------------
 # CSS
-# -------------------------
+# ---------------------------------------------------
 
 st.markdown("""
 <style>
@@ -66,9 +65,9 @@ h2,h3{
 </style>
 """, unsafe_allow_html=True)
 
-# -------------------------
-# Session
-# -------------------------
+# ---------------------------------------------------
+# Session State
+# ---------------------------------------------------
 
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
@@ -79,9 +78,9 @@ if "user_id" not in st.session_state:
 if "chat" not in st.session_state:
     st.session_state.chat = []
 
-# -------------------------
+# ---------------------------------------------------
 # Sidebar
-# -------------------------
+# ---------------------------------------------------
 
 with st.sidebar:
 
@@ -90,19 +89,33 @@ with st.sidebar:
         unsafe_allow_html=True
     )
 
-    menu = st.radio(
-        "Menu",
-        [
-            "Login",
-            "Register"
-        ]
-    )
+    if st.session_state.logged_in:
 
-# -------------------------
+        st.success("Logged In")
+
+        if st.button("Logout"):
+
+            st.session_state.logged_in = False
+            st.session_state.user_id = ""
+            st.session_state.chat = []
+
+            st.rerun()
+
+    else:
+
+        menu = st.radio(
+            "Menu",
+            [
+                "Login",
+                "Register"
+            ]
+        )
+
+# ---------------------------------------------------
 # Register
-# -------------------------
+# ---------------------------------------------------
 
-if menu == "Register" and not st.session_state.logged_in:
+if (not st.session_state.logged_in) and menu == "Register":
 
     st.title("Create Account")
 
@@ -117,29 +130,50 @@ if menu == "Register" and not st.session_state.logged_in:
 
     if st.button("Register"):
 
-        response = requests.post(
+        if not username or not email or not password:
 
-            f"{API_URL}/register",
+            st.warning("Please fill all fields.")
 
-            data={
+        else:
 
-                "username": username,
+            try:
 
-                "email": email,
+                response = requests.post(
 
-                "password": password
+                    f"{API_URL}/register",
 
-            }
+                    data={
+                        "username": username,
+                        "email": email,
+                        "password": password
+                    }
 
-        )
+                )
 
-        st.success(response.json()["message"])
+                result = response.json()
 
-# -------------------------
+                if result.get("success"):
+
+                    st.success("✅ Registration successful. Please login.")
+
+                else:
+
+                    st.error(
+                        result.get(
+                            "message",
+                            "Registration failed."
+                        )
+                    )
+
+            except Exception as e:
+
+                st.error(str(e))
+
+# ---------------------------------------------------
 # Login
-# -------------------------
+# ---------------------------------------------------
 
-elif menu == "Login" and not st.session_state.logged_in:
+elif (not st.session_state.logged_in) and menu == "Login":
 
     st.title("Login")
 
@@ -152,37 +186,52 @@ elif menu == "Login" and not st.session_state.logged_in:
 
     if st.button("Login"):
 
-        response = requests.post(
+        if not email or not password:
 
-            f"{API_URL}/login",
-
-            data={
-
-                "email": email,
-
-                "password": password
-
-            }
-
-        )
-
-        result = response.json()
-
-        if result["success"]:
-
-            st.session_state.logged_in = True
-
-            st.session_state.user_id = result["user_id"]
-
-            st.rerun()
+            st.warning("Please enter email and password.")
 
         else:
 
-            st.error(result["message"])
+            try:
 
-# -------------------------
+                response = requests.post(
+
+                    f"{API_URL}/login",
+
+                    data={
+
+                        "email": email,
+                        "password": password
+
+                    }
+
+                )
+
+                result = response.json()
+
+                if result.get("success"):
+
+                    st.session_state.logged_in = True
+                    st.session_state.user_id = result["user_id"]
+
+                    st.rerun()
+
+                else:
+
+                    st.error(
+                        result.get(
+                            "message",
+                            "Invalid credentials."
+                        )
+                    )
+
+            except Exception as e:
+
+                st.error(str(e))
+
+# ---------------------------------------------------
 # Chat Screen
-# -------------------------
+# ---------------------------------------------------
 
 if st.session_state.logged_in:
 
@@ -192,98 +241,161 @@ if st.session_state.logged_in:
         "FastAPI • Groq • MySQL • MongoDB • ChromaDB"
     )
 
+    st.subheader("📄 Upload Knowledge")
+
     uploaded = st.file_uploader(
-        "Upload PDF/TXT",
-        type=["pdf","txt"]
+        "Upload PDF or TXT",
+        type=["pdf", "txt"]
     )
 
     if uploaded:
 
-        files = {
-            "file": (
-                uploaded.name,
-                uploaded,
-                uploaded.type
-            )
-        }
+        if st.button("Upload Document"):
 
-        data = {
-            "user_id": st.session_state.user_id
-        }
+            try:
 
-        requests.post(
-            f"{API_URL}/upload",
-            files=files,
-            data=data
-        )
+                files = {
 
-        st.success("Knowledge uploaded successfully.")
+                    "file": (
+                        uploaded.name,
+                        uploaded,
+                        uploaded.type
+                    )
+
+                }
+
+                data = {
+
+                    "user_id": st.session_state.user_id
+
+                }
+
+                response = requests.post(
+
+                    f"{API_URL}/upload",
+
+                    files=files,
+
+                    data=data
+
+                )
+
+                if response.status_code == 200:
+
+                    st.success("✅ Knowledge uploaded successfully.")
+
+                else:
+
+                    st.error("Upload failed.")
+
+            except Exception as e:
+
+                st.error(str(e))
 
     st.divider()
+
+    # -----------------------------
+    # Chat History
+    # -----------------------------
 
     for role, msg in st.session_state.chat:
 
         if role == "user":
 
             st.markdown(
-                f"<div class='user-msg'><b>You:</b><br>{msg}</div>",
+
+                f"""
+                <div class='user-msg'>
+                <b>You:</b><br>{msg}
+                </div>
+                """,
+
                 unsafe_allow_html=True
+
             )
 
         else:
 
             st.markdown(
-                f"<div class='bot-msg'><b>Assistant:</b><br>{msg}</div>",
+
+                f"""
+                <div class='bot-msg'>
+                <b>Assistant:</b><br>{msg}
+                </div>
+                """,
+
                 unsafe_allow_html=True
+
             )
 
-    question = st.chat_input(
-        "Ask anything..."
-    )
+    # -----------------------------
+    # Chat Input
+    # -----------------------------
+
+    question = st.chat_input("Ask anything...")
 
     if question:
 
-        st.session_state.chat.append(
-            ("user", question)
-        )
+        question = question.strip()
 
-        response_placeholder = st.empty()
+        if question:
 
-        answer = ""
+            st.session_state.chat.append(
+                ("user", question)
+            )
 
-        response = requests.post(
+            response_placeholder = st.empty()
 
-            f"{API_URL}/chat",
+            answer = ""
 
-            data={
+            try:
 
-                "user_id": st.session_state.user_id,
+                response = requests.post(
 
-                "query": question
+                    f"{API_URL}/chat",
 
-            },
+                    data={
 
-            stream=True
+                        "user_id": st.session_state.user_id,
 
-        )
+                        "query": question
 
-        for chunk in response.iter_content(
-            chunk_size=None
-        ):
+                    },
 
-            if chunk:
+                    stream=True,
 
-                text = chunk.decode()
+                    timeout=120
 
-                answer += text
-
-                response_placeholder.markdown(
-                    f"<div class='bot-msg'><b>Assistant:</b><br>{answer}</div>",
-                    unsafe_allow_html=True
                 )
 
-        st.session_state.chat.append(
-            ("assistant", answer)
-        )
+                response.raise_for_status()
 
-        st.rerun()
+                for chunk in response.iter_content(chunk_size=None):
+
+                    if chunk:
+
+                        token = chunk.decode()
+
+                        answer += token
+
+                        response_placeholder.markdown(
+
+                            f"""
+                            <div class='bot-msg'>
+                            <b>Assistant:</b><br>{answer}
+                            </div>
+                            """,
+
+                            unsafe_allow_html=True
+
+                        )
+
+                st.session_state.chat.append(
+                    ("assistant", answer)
+                )
+
+                st.rerun()
+
+            except Exception as e:
+
+                st.error(f"Chat Error: {e}")
